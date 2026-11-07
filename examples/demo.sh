@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fully offline AttnLens demo: train two-layer causal multi-head attention
-# from scratch on the marker-recall task, verify the induction pattern in the
-# top head, and exercise both gate sides.
+# from scratch on the marker-recall task, verify that the top head's query
+# row concentrates attention on the key token, and exercise both gate sides.
 set -u
 cd "$(dirname "$0")/.."
 
