@@ -168,8 +168,10 @@ def forward(tokens: list[int], p: Params, cache: Cache | None = None) -> Matrix:
 
 
 def cross_entropy(logits_row: list[float], target: int) -> float:
-    probs = softmax(logits_row)
-    return -math.log(max(probs[target], 1e-12))
+    # Stable log-sum-exp, without a probability floor that disagrees with gradients.
+    maximum = max(logits_row)
+    return (maximum - logits_row[target]) + math.log(
+        sum(math.exp(x - maximum) for x in logits_row))
 
 
 def loss_and_grads(tokens: list[int], target: int, p: Params) -> tuple[float, dict[str, list]]:
@@ -178,7 +180,7 @@ def loss_and_grads(tokens: list[int], target: int, p: Params) -> tuple[float, di
     logits = forward(tokens, p, cache)
     last = len(tokens) - 1
     probs = softmax(logits[last])
-    loss = -math.log(max(probs[target], 1e-12))
+    loss = cross_entropy(logits[last], target)
 
     grads: dict[str, list] = {}
     dlogits = probs
