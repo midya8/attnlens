@@ -1,0 +1,25 @@
+{
+  "commit": "48ae1f6c50a4ae7a1909105d09cfaa26d09567fe",
+  "files": {
+    ".github/workflows/ci.yml": "0b782ec52eccb1bb03f55ddf82ad2dd47eed97dabae286eac14943ff676b5efc",
+    ".gitignore": "1b7de97a169cd982eccd5c125a3387577a3e38be3a0952d0e3c0323d3ea6fb70",
+    "LICENSE": "3fa74c2aedaa8c47c8f57973472e8ec9040bb2cc9f502ba6346b0b3b154671c0",
+    "README.md": "ed961a4699bb2580f3df1e808296b2ea7f123eaf3021b81537bce61493b188b5",
+    "attnlens/__init__.py": "5d5f782e7e3ac36550afcd0af75f552a008964125b42c138d24ff2d9358ab4f0",
+    "attnlens/__main__.py": "13a1a5b340cdcfc1902b62be90e508c7c71886000d5bf087e7854aadf09fb35e",
+    "attnlens/cli.py": "5d24b6c31924c3a47b3bd69e3149387104eeb5aee7f667be1fb41567c45f66ce",
+    "attnlens/data.py": "f0d300615ecda5faffb20f8fa84b65c4c79517a51623e601aa7636b52b009c0d",
+    "attnlens/model.py": "bbd9d1b706aaa58d83624551e0c957a6c9e2413c9ca480ee93528acf2eb5ea62",
+    "attnlens/patterns.py": "8a0b3eca765b2dba3fa512553052160ff463027372a4d293342c5da47c1297a6",
+    "attnlens/report.py": "3c8a805abeaaf34cd7acbe3e21bd91e8a95528992d6be03a3a2ed2603b34b2e0",
+    "attnlens/train.py": "b44bd003fa1ad25c821b71bd428702e3dfc9b5860b50a0891c598c1970aac198",
+    "examples/demo.sh": "0f74a7ed9d918df071cdd830b1ceff71e79c25f53de264607793aeb386d78a41",
+    "pyproject.toml": "db4f46a6a7ee7be55a963e5ec73ef1ceda93eeb641dd6aefe2dcce744d086334",
+    "tests/test_cli.py": "9cd52b77e069109ebd927c66206dc8644337e5ef532c3759ac6691e3ebe4c7bf",
+    "tests/test_data.py": "e5eb71e78b7e1601c0d5963d55c677353bbbc7f88dac96683a412a1857b4cdec",
+    "tests/test_model.py": "e969832f6300e2df1d343721ea4744578e6a010e81c8d096da95731318737e1b",
+    "tests/test_patterns.py": "bb56a36530fe02e5c5005f00c5c936ae131fcb4c7a848bbc10eec577c2661a5d",
+    "tests/test_report.py": "be0790a8f2ac7ba146b2b364c48fa6e59f29b19071f31d0a9df929a116d849e1",
+    "tests/test_train.py": "1ba34bebab8df6a7f083a1ce13dca609035dfbd38c8601f5833c29142cb5746a"
+  }
+}
