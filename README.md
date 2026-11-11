@@ -59,3 +59,33 @@ This is an educational attention-only model on synthetic recall, not useful-scal
 The architecture, induction-head analyses and intervention concepts come from prior work linked in [INTERVENTIONS.md](INTERVENTIONS.md). This repository implements a small, independently inspectable reproduction and adds tests, numerical repair and an intervention workbench. No novelty or research-paper result is claimed.
 
 MIT.
+
+## 0.3: actual online-softmax inference, one key block at a time
+
+The [online inference workbench](https://midya8.github.io/attnlens/online.html)
+runs the same source checkpoints through a new opt-in blocked online-softmax
+backend and an independent dense causal control. Inspect every maximum shift,
+old-mass rescaling, normalizer, weighted-value numerator and head result, then
+follow the actual projections/residuals to every vocabulary logit. Change block
+size/order or edit tokens; download input and full audit and replay natively.
+
+```sh
+python -m attnlens.online docs/online-example.json --output audit.json
+attnlens-online docs/online-example.json --output audit-entry.json
+```
+
+The inference core holds one observed score buffer of at most the selected
+block size, not a full attention matrix. Q/K/V, output and residual arrays still
+exist; the trace and dense audit deliberately add quadratic storage. This is
+standard online normalization, not a new method, FlashAttention GPU kernel,
+KV cache, linear attention, training backend, or speed claim. Original training,
+gradients, checkpoint bytes and interventions remain intact. The finite
+`-1e30` legacy mask edge case is disclosed and tested, not silently copied.
+
+[Full numerical/input/storage contract, attribution and reproduction](ONLINE.md).
+76 Python tests retain all original 59; independent browser/native checks cover
+106 full model reports, 80 standalone reports and every accumulator field.
+Actual Chrome also checks 66 full reports, 2,112 head/query views, 198 layouts
+and two real downloads replayed with Python. Public reproduction, deployment and
+portfolio showcase verification must be completed before this release is called
+fully verified.
