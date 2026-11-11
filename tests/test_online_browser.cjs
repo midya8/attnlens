@@ -1,0 +1,57 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spawn,execFileSync}=require('node:child_process'),{waitForDebugger}=require('./chrome_support.js');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function compare(a,b,p='root'){assert.equal(typeof a,typeof b,p);if(typeof a==='number')assert.ok(Number.isFinite(b)&&Math.abs(a-b)<=1e-11*Math.max(1,Math.abs(a),Math.abs(b)),p);else if(a===null||typeof a!=='object')assert.equal(a,b,p);else{assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),p);for(const k of Object.keys(a))compare(a[k],b[k],p+'.'+k);}}
+test('actual Chrome online full reports, every state and tensor, trusted edits, actual downloads and layouts',{timeout:240000},async()=>{
+ const server=require('node:http').createServer((req,res)=>{try{const file=path.join(__dirname,'../docs',req.url==='/'?'index.html':req.url);const types={'.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json'};res.setHeader('Content-Type',types[path.extname(file)]||'text/plain');res.end(fs.readFileSync(file));}catch(e){res.statusCode=404;res.end('not found');}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const profile=fs.mkdtempSync(path.join(os.tmpdir(),'attnlens-audit-')),browser=spawn(process.env.CHROME_BIN||'google-chrome',['--headless','--no-sandbox','--disable-gpu','--disable-extensions','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','pipe']});let ws,startupError,diagnostics='';browser.on('error',e=>startupError=e);browser.stderr.on('data',d=>diagnostics=(diagnostics+d).slice(-4000));
+ try{for(let i=0;i<1200&&!startupError&&browser.exitCode===null&&!fs.existsSync(path.join(profile,'DevToolsActivePort'));i++)await delay(25);assert.ok(fs.existsSync(path.join(profile,'DevToolsActivePort')),startupError?.message||diagnostics||'Chrome unavailable');const port=fs.readFileSync(path.join(profile,'DevToolsActivePort'),'utf8').split('\n')[0],tab=await waitForDebugger(`http://127.0.0.1:${port}/json/list`,{alive:()=>browser.exitCode===null&&!startupError});ws=new WebSocket(tab.webSocketDebuggerUrl);await new Promise((res,rej)=>{ws.onopen=res;ws.onerror=rej;});let seq=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(pending.has(m.id)){const {res,rej}=pending.get(m.id);pending.delete(m.id);m.error?rej(Error(JSON.stringify(m.error))):res(m.result);}};const call=(method,params={})=>new Promise((res,rej)=>{const id=++seq;pending.set(id,{res,rej});ws.send(JSON.stringify({id,method,params}));});const js=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+ await call('Page.enable');await call('Page.navigate',{url:process.env.ATTN_ONLINE_URL||`http://127.0.0.1:${server.address().port}/online.html`});
+ for(let i=0;i<500;i++){if(await js('Boolean(window.onlineReady)'))break;await delay(20);}assert.ok(await js('window.onlineReady'));
+ const native=execFileSync(process.env.PYTHON||'python',['tests/native_online_reports.py'],{cwd:path.resolve(__dirname,'..'),maxBuffer:256e6,encoding:'utf8'}).trim().split('\n').map(x=>JSON.parse(x)).filter(x=>x.kind==='model').slice(0,66);
+ const data=require('../docs/data.json'),fmt=x=>x===null?'empty':typeof x==='number'?(Number.isInteger(x)?String(x):Math.abs(x)<.00001&&x!==0?x.toExponential(5):x.toFixed(6)):String(x);
+ const tables=async id=>js(`Array.from(document.querySelectorAll('#'+${JSON.stringify(id)}+' tbody'),b=>Array.from(b.rows,r=>Array.from(r.cells,c=>c.textContent)))`),expected=rows=>rows.map(row=>row.map(fmt)),matrix=rows=>expected(rows.map((r,i)=>[i,...r]));
+ const set=async(id,value,event='change')=>js(`document.getElementById(${JSON.stringify(id)}).value=${JSON.stringify(String(value))};document.getElementById(${JSON.stringify(id)}).dispatchEvent(new Event(${JSON.stringify(event)}))`);
+ const sizes=[320,390,1280],pixelDir=process.env.ATTN_ONLINE_PIXELS;if(pixelDir)fs.mkdirSync(pixelDir,{recursive:true});
+ let views=0,reports=0,layouts=0,screens=0;
+ for(let mi=0;mi<2;mi++){
+  await set('checkpoint',mi);
+  for(let ci=0;ci<11;ci++){
+   await set('fixture',ci);
+   for(let config=0;config<3;config++){
+    const item=native[(mi*11+ci)*3+config],nativeReport=item.report,s=item.spec;
+    await set('block',s.block_size);await set('order',s.order);compare(nativeReport,await js('onlineAudit'));const r=await js('onlineAudit');reports++;
+    // Full native report is checked above within binary64 tolerance. Exact text
+    // checks use actual browser numbers, including visible ~1e-17 rounding deltas.
+    assert.deepEqual(await tables('logits'),[expected(r.online_summary.probabilities.map((p,i)=>[i,r.online.logits.at(-1)[i],r.dense.logits.at(-1)[i],p,r.dense_summary.probabilities[i]]))]);
+    assert.deepEqual(await tables('all-logits'),[expected(r.online.logits.flatMap((row,i)=>row.map((x,c)=>[i,c,x,r.dense.logits[i][c],x-r.dense.logits[i][c]])))]);
+    const metricValues=[r.online_summary.prediction,fmt(r.online_summary.loss),fmt(r.online_summary.target_probability),fmt(r.max_absolute_logit_error),fmt(r.max_scaled_logit_error),fmt(r.legacy_max_scaled_logit_error)].map(String);
+    assert.deepEqual(await js(`Array.from(document.querySelectorAll('#metrics strong'),e=>e.textContent)`),metricValues);
+    const st=r.online.stats;assert.deepEqual(await js(`Array.from(document.querySelectorAll('#counts strong'),e=>e.textContent)`),[st.peak_score_buffer,st.score_evaluations,st.blocks,0,0,st.numerator_slots].map(String));
+    for(let li=0;li<2;li++){await set('layer',li);for(let hi=0;hi<2;hi++){await set('head',hi);for(let row=0;row<s.tokens.length;row++){
+     await set('row',row);views++;const L=r.online.layers[li],D=r.dense.layers[li],h=L.heads[hi],d=D.heads[hi],R=h.rows[row],scores=new Map();for(const step of R.steps)for(let j=0;j<step.keys.length;j++)scores.set(step.keys[j],step.scores[j]);
+     assert.deepEqual(await tables('transitions'),[expected(R.steps.map((x,i)=>[i+' / '+x.keys.join(','),x.previous_max,x.previous_normalizer,x.rescale,x.maximum,x.block_sum,x.normalizer,...x.numerator,...x.output]))]);
+     assert.deepEqual(await tables('output'),[expected(R.output.map((x,c)=>[c,x,d.output[row][c],x-d.output[row][c]]))]);
+     assert.deepEqual(await tables('qkv'),[matrix([h.q[row]]),expected(s.tokens.map((t,j)=>[j,t,j<=row?'admitted':'excluded',j<=row?scores.get(j):'not computed',d.attention[row][j],...h.k[j],...h.v[j]]))]);
+     assert.deepEqual(await tables('residual'),['input','concat','projected','residual'].flatMap(k=>[matrix(L[k]),matrix(D[k])]));
+     assert.deepEqual(await js(`Array.from(document.querySelectorAll('#weights .key')).map(e=>e.classList.contains('future'))`),s.tokens.map((_,j)=>j>row));
+    }}}
+    for(const width of sizes){await call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<700});layouts++;assert.ok(await js('document.documentElement.scrollWidth<=innerWidth'),'overflow '+width);assert.ok(await js(`Array.from(document.querySelectorAll('button,input,select,summary')).filter(e=>e.getClientRects().length).every(e=>e.getBoundingClientRect().height>=44)`),'touch '+width);
+     if(pixelDir&&[0,1,10].includes(ci)&&config!==2){await js('document.activeElement.blur();window.scrollTo(0,0)');const m=await call('Page.getLayoutMetrics'),shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:m.cssContentSize.height,scale:1}});fs.writeFileSync(path.join(pixelDir,`${mi}-${ci}-${config}-${width}.png`),Buffer.from(shot.data,'base64'));screens++;}
+    }
+   }
+  }
+ }
+ for(const bad of ['', 'true,2', '1,2,', '1,2.5', '1,-2', '12,1', Array(25).fill(1).join(',')]){await set('tokens',bad,'input');assert.equal(await js('document.getElementById("results").hidden'),true);assert.equal(await js('document.getElementById("download-audit").disabled'),true);await js('document.getElementById("apply").click()');assert.equal(await js('document.getElementById("results").hidden'),true);}
+ await set('checkpoint',0);await set('fixture',0);await call('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
+ // Real key events and insertion, then real pointer clicks and actual downloads.
+ await js('document.getElementById("tokens").focus()');await call('Input.dispatchKeyEvent',{type:'keyDown',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:2});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:2});await call('Input.insertText',{text:'10,2,11'});assert.equal(await js('document.getElementById("results").hidden'),true);await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});assert.equal(await js('onlineAudit.tokens.join(",")'),'10,2,11');
+ const downloads=fs.mkdtempSync(path.join(os.tmpdir(),'attn-online-download-'));try{
+ await call('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads,eventsEnabled:true});
+ for(const kind of ['input','audit']){const id='download-'+kind;await js(`document.getElementById('${id}').scrollIntoView({block:'center'})`);const point=await js(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await call('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});const file=path.join(downloads,'attnlens-online-'+kind+'.json');for(let i=0;i<500&&!fs.existsSync(file);i++)await delay(10);assert.ok(fs.existsSync(file),'real '+kind+' download');compare(await js(kind==='input'?'onlineSpec':'onlineAudit'),JSON.parse(fs.readFileSync(file,'utf8')));}
+ const replay=JSON.parse(execFileSync(process.env.PYTHON||'python',['-m','attnlens.online',path.join(downloads,'attnlens-online-input.json')],{cwd:path.resolve(__dirname,'..'),encoding:'utf8',maxBuffer:80e6}));compare(replay,JSON.parse(fs.readFileSync(path.join(downloads,'attnlens-online-audit.json'),'utf8')));
+ }finally{fs.rmSync(downloads,{recursive:true,force:true});}
+ if(pixelDir){await set('row',0);for(const width of sizes){await call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<700});await js('document.activeElement.blur();window.scrollTo(0,0)');const m=await call('Page.getLayoutMetrics'),shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:m.cssContentSize.height,scale:1}});fs.writeFileSync(path.join(pixelDir,'future-'+width+'.png'),Buffer.from(shot.data,'base64'));screens++;}}
+ console.log(JSON.stringify({full_model_reports:reports,head_query_views:views,layouts,actual_downloads:2,trusted_input_replayed_natively:true,screenshots:screens}));
+ }finally{server.close();if(ws)ws.close();if(browser.pid&&browser.exitCode===null){browser.kill('SIGTERM');await new Promise(r=>browser.once('exit',r));}await fs.promises.rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
+});
