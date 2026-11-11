@@ -87,5 +87,5 @@ gradients, checkpoint bytes and interventions remain intact. The finite
 106 full model reports, 80 standalone reports and every accumulator field.
 Actual Chrome also checks 66 full reports, 2,112 head/query views, 198 layouts
 and two real downloads replayed with Python. Public reproduction, deployment and
-portfolio showcase verification must be completed before this release is called
-fully verified.
+the deployed pages and public reproduction still need checking before this release
+counts as fully verified.
