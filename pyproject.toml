@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attnlens"
-version = "0.2.0"
+version = "0.3.0"
 description = "Causal multi-head self-attention trained from scratch, with gradient verification and head analysis"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,7 @@ license = {text = "MIT"}
 
 [project.scripts]
 attnlens-audit = "attnlens.intervene:main"
+attnlens-online = "attnlens.online:main"
 
 [tool.setuptools.packages.find]
 include = ["attnlens*"]
