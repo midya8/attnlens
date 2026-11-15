@@ -42,6 +42,23 @@ Actual Chrome also checks 66 full reports, 2,112 head/query views, 198 layouts
 and two real downloads replayed with Python. Local test counts do not by themselves verify a current deployment. Public
 reproduction, deployed behavior and exported evidence require separate checks.
 
+## Coordinate and head relabeling regressions
+
+Four tests in `tests/test_coordinates.py` check matched signed-coordinate and
+head permutations. Q/K columns move with the same signs; V columns move with
+matching output-projection rows. Dense logits, blocked online logits and head
+ablations agree when muted head indices are relabeled too. The test exhausts
+all 16 subsets for each of 44 archived model/case/relabeling combinations.
+
+Generated checks cover every parameter gradient on 36 small models and 48
+online SGD updates over four head counts, with both active and inactive
+global-norm clipping. Signed permutations preserve that norm. A one-sided V
+sign change without the matching projection change must alter the logits.
+These are finite consistency regressions, not an independent correctness
+oracle, proof for all inputs, training improvement, or invariance under an
+arbitrary change of basis. The full Python suite now has 80 tests; the original
+76 tests, trainer, checkpoints, fixtures, browser and schemas are unchanged.
+
 ## Inspect the computation
 
 - Trained and same-seed initialized checkpoints; 11 sequences including three declared edge structures, never selected by quality.
