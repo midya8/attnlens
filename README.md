@@ -1,114 +1,45 @@
-# AttnLens
+# attnlens
 
-AttnLens trains a small causal attention model on synthetic marker recall. Inspect
-fixed-weight head interventions, or run the same checkpoints through blocked
-online-softmax inference and compare every accumulator with a dense control.
-Python and independent browser arithmetic use no model API or autograd.
+A tiny attention-only transformer (two layers, two heads each, no MLP) trained in plain Python on a toy recall task, so I could look at what each head is doing and what happens when you switch one off. No autograd library, the backward pass is written out by hand.
 
-| Question | Open | Boundary |
-| --- | --- | --- |
-| What changes when a head result is zeroed? | [Intervention workbench](https://midya8.github.io/attnlens/) and [contract](INTERVENTIONS.md) | The replacement can be out of distribution. It is not a universal importance score or an identified circuit. |
-| How does a key block change the running softmax state? | [Online inference workbench](https://midya8.github.io/attnlens/online.html) and [numerical contract](ONLINE.md) | Structural score-buffer counts are not total memory, GPU IO or speed measurements. |
-| Can I reproduce weights and audit exports? | [Reproduction commands](#reproduce) | Cross-runtime agreement uses stated tolerances, not bitwise identity. |
-
-The native trainer implements token embeddings, sinusoidal positions, two residual causal attention blocks, output logits, cross-entropy and clipped SGD with no dependencies or autograd. A tiny marker-recall task asks for the token after a varying-position marker. The new workbench loads complete trained weights and independently computes inference in JavaScript. It zeroes selected head result vectors before the shared output projection at every position, then recomputes all downstream activations. It does not freeze attention patterns.
-
-## Online inference (0.3)
-
-The [online inference workbench](https://midya8.github.io/attnlens/online.html)
-runs the same source checkpoints through a new opt-in blocked online-softmax
-backend and an independent dense causal control. Inspect every maximum shift,
-old-mass rescaling, normalizer, weighted-value numerator and head result, then
-follow the actual projections/residuals to every vocabulary logit. Change block
-size/order or edit tokens; download input and full audit and replay natively.
-
-```sh
-python -m attnlens.online docs/online-example.json --output audit.json
-attnlens-online docs/online-example.json --output audit-entry.json
-```
-
-The inference core holds one observed score buffer of at most the selected
-block size, not a full attention matrix. Q/K/V, output and residual arrays still
-exist; the trace and dense audit deliberately add quadratic storage. This is
-standard online normalization, not a new method, FlashAttention GPU kernel,
-KV cache, linear attention, training backend, or speed claim. Original training,
-gradients, checkpoint bytes and interventions remain intact. The finite
-`-1e30` legacy mask edge case is disclosed and tested, not silently copied.
-
-[Full numerical/input/storage contract, attribution and reproduction](ONLINE.md).
-76 Python tests retain all original 59; independent browser/native checks cover
-106 full model reports, 80 standalone reports and every accumulator field.
-Actual Chrome also checks 66 full reports, 2,112 head/query views, 198 layouts
-and two real downloads replayed with Python. Local test counts do not by themselves verify a current deployment. Public
-reproduction, deployed behavior and exported evidence require separate checks.
-
-## Coordinate and head relabeling regressions
-
-Four tests in `tests/test_coordinates.py` check matched signed-coordinate and
-head permutations. Q/K columns move with the same signs; V columns move with
-matching output-projection rows. Dense logits, blocked online logits and head
-ablations agree when muted head indices are relabeled too. The test exhausts
-all 16 subsets for each of 44 archived model/case/relabeling combinations.
-
-Generated checks cover every parameter gradient on 36 small models and 48
-online SGD updates over four head counts, with both active and inactive
-global-norm clipping. Signed permutations preserve that norm. A one-sided V
-sign change without the matching projection change must alter the logits.
-These are finite consistency regressions, not an independent correctness
-oracle, proof for all inputs, training improvement, or invariance under an
-arbitrary change of basis. The full Python suite now has 80 tests; the original
-76 tests, trainer, checkpoints, fixtures, browser and schemas are unchanged.
-
-## Inspect the computation
-
-- Trained and same-seed initialized checkpoints; 11 sequences including three declared edge structures, never selected by quality.
-- All 16 head subsets on each input, including no-op and all-off residual controls. Every head is available, not a selected weak baseline.
-- All 128 original held-out examples evaluated under every subset, recomputed in the browser and checked against Python. This is one fixed seed/task, not a general benchmark.
-- All ten recalled-key replacements, with the original as a no-op, plus one changed value at every filler position. The task target changes only with a recalled-key replacement.
-- Full baseline/intervention logits, probabilities, attention, Q/K/V, pre/post-ablation head results, projected outputs, residual streams and every source weight.
-- Editable valid sequences, complete checkpoint/audit JSON exports, keyboard controls, invalid-input clearing and phone layouts.
-
-Attention weights are a descriptive pattern. Ablation measures the output effect of this exact replacement, which can create out-of-distribution activations. It is not a universal importance score, natural-language explanation, activation-patching analysis or identified induction circuit. Head effects can interact and need not add.
-
-## Reproduce
+The task: a sequence contains a marker token followed by a key, and at the end the model has to output that key. It's the classic setup where an induction-style head should show up.
 
 ```bash
-python -m unittest discover -s tests -v
-PYTHONPATH=. python scripts/verify_regeneration.py
-node --test tests/*.cjs                       # Node 22 + actual Chrome
-bash examples/demo.sh                        # unchanged original gate checks
-bash examples/verify_wheel.sh                # clean environment outside checkout
-python -m http.server 8080 --directory docs  # http://localhost:8080
-```
-
-Rebuild all weights and data with `PYTHONPATH=. python scripts/build_workbench.py`. `verify_regeneration.py` instead compares the entire rebuilt payload at normalized tolerance 1e-12 without writing the file. The browser never claims to reproduce Python's RNG or training.
-
-```bash
-# Original CLI and gates are retained.
-python -m attnlens train --dim 8 --heads 2 --layers 2 --epochs 100 --seed 7 \
-  --json report.json --markdown report.md \
-  --max-final-loss 0.05 --min-accuracy 0.95 --min-recall-attention 0.7
+python -m attnlens train --dim 8 --heads 2 --layers 2 --epochs 100 --seed 7
 python -m attnlens heatmap --dim 8 --heads 2 --layers 2 --epochs 100 --seed 7
+```
 
-# Download a checkpoint from the workbench, then independently inspect it.
+Training takes about 20 seconds on a laptop. With seed 7 the final loss is about 0.0003, accuracy is 100%, and you can see the second layer doing the work:
+
+```
+layer0 head0: entropy=1.182 prev=0.283 recall=0.041
+layer0 head1: entropy=1.255 prev=0.243 recall=0.164
+layer1 head0: entropy=0.781 prev=0.169 recall=0.803
+layer1 head1: entropy=0.378 prev=0.163 recall=0.999
+```
+
+## Muting heads
+
+https://midya8.github.io/attnlens/ loads the trained weights in the browser and lets you zero out any combination of heads and see the logits change. With all heads on, the checkpoint gets 128/128 held-out examples right. With all four off, only the embedding/residual path is left and it drops to 19/128. The other 14 combinations are in there too, and they don't add up neatly.
+
+From the command line:
+
+```bash
 python -m attnlens.intervene --model attnlens-checkpoint.json \
   --tokens 6,10,2,8,2,7,5,11 --mute 0:1 > audit.json
 ```
 
-For the workbench checkpoint (seed 7, 100 epochs, 64 examples per epoch, dim 8, 2 heads, 2 layers, SGD 0.1), all heads kept give 128/128 held-out correct and mean held-out cross-entropy 0.000482558 nats. Muting all four heads leaves the embedding/position/output residual path: 19/128 correct, mean loss 2.900797842. All 16 outcomes, including failures and non-monotone effects, are available. These are descriptive fixed-weight intervention results, not a decomposition of learning gains or an architecture comparison.
+Keep in mind that zeroing a head can push the model somewhere it never saw in training, so "accuracy dropped" isn't the same as "this head is important". INTERVENTIONS.md has more on that.
 
-## Verification and numerical repair
+## Online softmax
 
-The 46 original tests, original dataset/trainer settings and unchanged demo are retained. Thirteen added Python tests cover complete no-op equivalence, all-off residual identity, exact head-slice removal, downstream recomputation, nonmutation, strict checkpoint validation, causality, full export, exhaustive subsets, matched edits and extreme-loss finite differences. Those 59 tests remain in the current 76-test Python suite. CI runs Python 3.10-3.13, browser and installed-wheel jobs.
+A later addition: the same checkpoint run through block-by-block online softmax (the trick FlashAttention uses), compared against plain dense attention. `python -m attnlens.online docs/online-example.json --output audit.json`, or the page at `online.html`. Details in ONLINE.md. This is CPU Python, so no speed claims.
 
-The old cross-entropy floored target probabilities at 1e-12 but still returned the unclipped softmax gradient. For a very unlikely target the reported loss was constant while gradients were nonzero. Stable log-sum-exp now computes the actual loss (e.g. logits `[1000, -1000]`, target 1 yield 2000 nats) without changing forward weights, optimizer or original positive gates. Training traces are recomputed rather than silently keeping stale numbers.
+## Tests
 
-Independent Node and actual Chrome compare 352 full tensor reports, 22 complete audits and every displayed tensor/weight cell over 704 layer/head/row views. Complete held-out subset comparisons cover 4096 predictions across two checkpoints, and full JSON exports are tested. Normalized native/JS tolerance is 1e-10, not a cross-runtime bitwise claim.
+```bash
+python -m unittest discover -s tests   # 80 tests
+node --test tests/*.cjs                # browser checks, needs Chrome
+```
 
-## Limits and attribution
-
-This is an educational attention-only model on synthetic recall, not useful-scale language modeling. The model has no MLP, normalization or dropout. One trained seed and initialization do not establish a one-layer difficulty gap, a classic induction mechanism or seed robustness. High recall attention is an observation, not proof of function. The UI permits fixed-checkpoint input tests, not a configurable architecture or retraining system.
-
-The architecture, induction-head analyses and intervention concepts come from prior work linked in [INTERVENTIONS.md](INTERVENTIONS.md). This repository implements a small, independently inspectable reproduction and adds tests, numerical repair and an intervention workbench. No novelty or research-paper result is claimed.
-
-MIT.
+It's a toy model on synthetic data and one seed. Fun to poke at, not research.
